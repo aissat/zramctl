@@ -21,38 +21,45 @@ string find_free();
 void status();
 
 int main(int argc, char* argv[]) {
-  int count=argc-1;
-  string name="-h";
-  string path="/sys/block/";
-  if (count>0) name=argv[1];
-  if (name.find("-h") != string::npos) {
-    help();
-    return 1;
-  }
-  if (!dir_exist(path+"zram0")) system("modprobe zram");
-  if (name == "status") { status(); return 0; }
-  else if (name == "reset" && count>=2) {
-    for (int i=2; i<=count; i++) {
-      if (!dir_exist(path+argv[i])) {
-        cout << "can't find " << path+argv[i] << "\n"; return 1;
+  int i=0;
+  string name=" ", path="/sys/block/";
+  if (argc>1) name=argv[1];
+  if (name == "status") i=1;
+  else if (name == "reset" && argc>=3) i=2;
+  else if (name.find("zram") != string::npos) { name=name; i=3; }
+  else if (name.find("find") != string::npos) { name=find_free(); i=3; }
+  switch (i) {
+    case 1:
+      status();
+    break;
+    case 2:
+      for (int i=2; i<argc; i++) {
+        if (!dir_exist(path+argv[i])) {
+          cout << "can't find " << path << argv[i] << "\n"; return 1;
+        }
+        write(path+argv[i]+"/reset", "1");
       }
-      write(path+argv[i]+"/reset", "1");
-    }
-    return 1;
+    break;
+    case 3:
+      if (!dir_exist(path+"zram0")) system("modprobe zram");
+      path+=name;
+      if (!dir_exist(path)) {
+        cout << "can't find " << path << "\n"; return 1;
+      }
+      if (argc>=3) write(path+"/reset", "1");
+      if (argc==5) write(path+"/max_comp_streams", argv[4]);
+      if (argc>=4) {
+        string alg = argv[3];
+        if (alg == "lzo" || alg == "lz4") write(path+"/comp_algorithm", alg);
+        else  { cout << "Only lzo or lz4 allowed"; return 1; }
+      }
+      if (argc>=3) write(path+"/disksize", argv[2]);
+    break;
+    default:
+      help();
+      return 1;
   }
-  else if (name.find("zram") != string::npos) name=name;
-  else if (name.find("find") != string::npos) name=find_free();
-  path+=name;
-  if (!dir_exist(path)) { cout << "can't find " << path << "\n"; return 1; }
-  if (count>=2) write(path+"/reset", "1");
-  if (count==4) write(path+"/max_comp_streams", argv[4]);
-  if (count>=3) {
-    string alg = argv[3];
-    if (alg == "lzo" || alg == "lz4") write(path+"/comp_algorithm", alg);
-    else  { cout << "Only lzo or lz4 allowed"; return 1; }
-  }
-  if (count>=2) write(path+"/disksize", argv[2]);
-return 0;
+  return 0;
 }
 
 void help(){
@@ -64,7 +71,7 @@ void help(){
   << "zramctl status                              \n"
   << "lzo|lz4    # compress algorithm             \n"
   << "*|{K|M|G}  # size of zram disk              \n"
-  << "<name>     # zram* or find                  \n"
+  << "<name>     # zram*|find|status              \n"
   << "           # if find, print and setup first free device\n";
 }
 
@@ -97,7 +104,7 @@ string read_file(string path) {
 
 string find_free(){
   string name, path, _i;
-  for (int i=0; i<32; i++) {
+  for (int i=0;; i++) {
     _i=to_string(i);
     path="/sys/block/zram"+_i;
     if(!dir_exist(path)) break;
@@ -118,16 +125,16 @@ bool used(string path) {
 }
 
 void status() {
-  printf("%5s %12s %10s %10s %10s %4s \n",
+  printf("%6s %12s %10s %10s %4s %4s \n",
          "NAME",
          "DISKSIZE",
          "ORIG",
          "COMPRES",
-         "ALGORITHM",
+         "ALG",
          "THR"
         );
   string name, disksize, path, algorithm, _i;
-  for (int i=0;i<32;i++){
+  for (int i=0;;i++){
     _i=to_string(i);
     path="/sys/block/zram"+_i;
     name="zram"+_i;
@@ -138,9 +145,9 @@ void status() {
 
     algorithm=read_file(path+"/comp_algorithm");
     if (algorithm.find("[lzo]") != string::npos) algorithm = "lzo";
-    else if(algorithm.find("[lz4]") != string::npos) algorithm = "lz4";
+    else if (algorithm.find("[lz4]") != string::npos) algorithm = "lz4";
 
-    printf("%5s %12s %10s %10s %10s %4s \n",
+    printf("%6s %12s %10s %10s %4s %4s \n",
            name.c_str(),
            disksize.c_str(),
            read_file(path+"/orig_data_size").c_str(),
